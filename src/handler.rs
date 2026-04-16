@@ -288,6 +288,7 @@ pub async fn handle_key_events(
                                     app.focused_block = FocusedBlock::Adapter;
                                 }
                             }
+                            app.reset_devices_state();
                         }
                         FocusedBlock::NewDevices => {
                             app.focused_block = FocusedBlock::Adapter;
