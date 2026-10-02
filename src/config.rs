@@ -398,6 +398,70 @@ fn default_help_text() -> Color {
     Color::Blue
 }
 
+/// The optional second colour file, layered over the `[colors]` table of the
+/// config.
+///
+/// It is for tools that recolour a desktop from the current wallpaper --
+/// wallust, pywal -- which re-extract a palette on every wallpaper change and
+/// have no business owning a config file that also holds your keybinds and
+/// layout. Such a tool renders the overlay; bluetui is a fresh process every
+/// time it starts, so the next run already has the new colours.
+///
+/// Set BLUETUI_COLORS_OVERLAY to read it from somewhere else.
+fn colors_overlay_path() -> PathBuf {
+    if let Ok(path) = std::env::var("BLUETUI_COLORS_OVERLAY") {
+        if !path.is_empty() {
+            return PathBuf::from(path);
+        }
+    }
+
+    let cache = match std::env::var_os("XDG_CACHE_HOME") {
+        Some(dir) => PathBuf::from(dir),
+        None => dirs::home_dir().unwrap_or_default().join(".cache"),
+    };
+    cache.join("wallust").join("colors-bluetui.toml")
+}
+
+/// Merge the overlay's `[colors]` entries over the config's, key by key.
+///
+/// Per key rather than per file, so an overlay naming only `error` leaves the
+/// other nine as the config has them. A missing, unreadable or malformed
+/// overlay is the normal state -- it means "use the config" -- and is silently
+/// nothing, which is what every theme that is not wallpaper-derived wants.
+fn merge_colors_overlay(config: &mut toml::Value) {
+    let text = match std::fs::read_to_string(colors_overlay_path()) {
+        Ok(text) => text,
+        Err(_) => return,
+    };
+    // toml::from_str, not str::parse: FromStr for Value parses a single VALUE,
+    // so a document starting with [colors] is read as an array and then errors
+    // on the rest of the file. Caught by instrumenting this -- it fails
+    // silently by design, which is right for a missing overlay and very wrong
+    // for one that is simply being parsed the wrong way.
+    let overlay: toml::Value = match toml::from_str(&text) {
+        Ok(value) => value,
+        Err(_) => return,
+    };
+
+    let overlay_colors = match overlay.get("colors").and_then(|v| v.as_table()) {
+        Some(table) => table.clone(),
+        None => return,
+    };
+    let table = match config.as_table_mut() {
+        Some(table) => table,
+        None => return,
+    };
+
+    let colors = table
+        .entry("colors".to_string())
+        .or_insert_with(|| toml::Value::Table(Default::default()));
+    if let Some(colors) = colors.as_table_mut() {
+        for (key, value) in overlay_colors {
+            colors.insert(key, value);
+        }
+    }
+}
+
 impl Config {
     pub fn new(config_file_path: Option<PathBuf>) -> Self {
         let conf_path = config_file_path.unwrap_or(
@@ -408,7 +472,19 @@ impl Config {
         );
 
         let config = std::fs::read_to_string(conf_path).unwrap_or_default();
-        let app_config: Config = match toml::from_str(&config) {
+        // Parsed to a Value first so the overlay can be merged into it before
+        // anything is deserialised. Appending the two files as text cannot
+        // work: TOML rejects a second [colors] header as a duplicate key.
+        let mut value: toml::Value = match toml::from_str(&config) {
+            Ok(v) => v,
+            Err(e) => {
+                eprintln!("{}", e);
+                exit(1);
+            }
+        };
+        merge_colors_overlay(&mut value);
+
+        let app_config: Config = match value.try_into() {
             Ok(c) => c,
             Err(e) => {
                 eprintln!("{}", e);
