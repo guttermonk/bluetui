@@ -216,6 +216,43 @@ pub async fn handle_key_events(
 
             _ => {}
         },
+        FocusedBlock::UnpairConfirmation { ref mut confirm } => match key_event.code {
+            KeyCode::Esc => app.focused_block = FocusedBlock::PairedDevices,
+            KeyCode::Tab => *confirm = !*confirm,
+            KeyCode::Enter => {
+                if !*confirm {
+                    // the user chose to cancel unpairing
+                    app.focused_block = FocusedBlock::PairedDevices;
+                    return Ok(());
+                }
+                if let Some(selected_controller) = app.controller_state.selected() {
+                    let controller = &app.controllers[selected_controller];
+                    if let Some(index) = app.paired_devices_state.selected() {
+                        let addr = controller.paired_devices[index].addr;
+                        match controller.adapter.remove_device(addr).await {
+                            Ok(_) => {
+                                let _ = Notification::send(
+                                    "Device unpaired".into(),
+                                    NotificationLevel::Info,
+                                    sender.clone(),
+                                );
+                            }
+                            Err(e) => {
+                                let _ = Notification::send(
+                                    e.into(),
+                                    NotificationLevel::Error,
+                                    sender.clone(),
+                                );
+                            }
+                        }
+                    }
+                }
+                // Dismiss the dialog whatever the outcome, otherwise it stays
+                // drawn over the list the unpaired device just left.
+                app.focused_block = FocusedBlock::PairedDevices;
+            }
+            _ => {}
+        },
         FocusedBlock::EnterPinCode => {
             if let Some(req) = &mut app.requests.enter_pin_code {
                 match key_event.code {
@@ -673,30 +710,8 @@ pub async fn handle_key_events(
                             match key_event.code {
                                 // Unpair
                                 KeyCode::Char(c) if c == config.paired_device.unpair => {
-                                    if let Some(selected_controller) =
-                                        app.controller_state.selected()
-                                    {
-                                        let controller = &app.controllers[selected_controller];
-                                        if let Some(index) = app.paired_devices_state.selected() {
-                                            let addr = controller.paired_devices[index].addr;
-                                            match controller.adapter.remove_device(addr).await {
-                                                Ok(_) => {
-                                                    let _ = Notification::send(
-                                                        "Device unpaired".into(),
-                                                        NotificationLevel::Info,
-                                                        sender.clone(),
-                                                    );
-                                                }
-                                                Err(e) => {
-                                                    let _ = Notification::send(
-                                                        e.into(),
-                                                        NotificationLevel::Error,
-                                                        sender.clone(),
-                                                    );
-                                                }
-                                            }
-                                        }
-                                    }
+                                    app.focused_block =
+                                        FocusedBlock::UnpairConfirmation { confirm: false }
                                 }
 
                                 // Connect / Disconnect

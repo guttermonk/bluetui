@@ -45,6 +45,7 @@ pub enum FocusedBlock {
     NewDevices,
     SetDeviceAliasBox,
     RequestConfirmation,
+    UnpairConfirmation { confirm: bool },
     EnterPinCode,
     EnterPasskey,
     DisplayPinCode,
@@ -269,6 +270,92 @@ impl App {
                 frame.render_widget(alias, alias_block);
             }
         }
+    }
+
+    pub fn render_unpair_confirmation(&self, confirm: bool, frame: &mut Frame, area: Rect) {
+        let block = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([
+                Constraint::Fill(1),
+                Constraint::Length(7),
+                Constraint::Fill(1),
+            ])
+            .split(area);
+
+        let block = Layout::default()
+            .direction(Direction::Horizontal)
+            .constraints([
+                Constraint::Fill(1),
+                Constraint::Max(70),
+                Constraint::Fill(1),
+            ])
+            .split(block[1])[1];
+
+        frame.render_widget(Clear, block);
+
+        let bordered = Block::new()
+            .borders(Borders::ALL)
+            .border_type(BorderType::Thick)
+            .border_style(Style::default().fg(self.config.colors.focused_border));
+        let inside_area = bordered.inner(block);
+        frame.render_widget(bordered, block);
+
+        let (message_block, choices_block) = {
+            let chunks = Layout::default()
+                .direction(Direction::Vertical)
+                .constraints([
+                    Constraint::Length(1),
+                    Constraint::Length(1),
+                    Constraint::Length(1),
+                    Constraint::Length(1),
+                    Constraint::Length(1),
+                ])
+                .split(inside_area);
+
+            (chunks[1], chunks[3])
+        };
+
+        let Some(selected_controller) = self.controller_state.selected() else {
+            frame.render_widget("Trying to unpair with no controller selected!", inside_area);
+            return;
+        };
+        let controller = &self.controllers[selected_controller];
+
+        let Some(selected_device) = self.paired_devices_state.selected() else {
+            frame.render_widget("No device selected for unpairing.", inside_area);
+            return;
+        };
+
+        let message = Line::from(vec![
+            Span::from("Are you sure you want to unpair "),
+            Span::styled(
+                controller.paired_devices[selected_device].alias.as_str(),
+                Style::default().add_modifier(Modifier::ITALIC),
+            ),
+            Span::from("?"),
+        ])
+        .centered();
+
+        let choice = if confirm {
+            Line::from(vec![
+                Span::from("No").style(Style::default()),
+                Span::from("        "),
+                Span::from("Yes")
+                    .style(Style::default().bg(self.config.colors.info))
+                    .bold(),
+            ])
+        } else {
+            Line::from(vec![
+                Span::from("No")
+                    .style(Style::default().bg(self.config.colors.info))
+                    .bold(),
+                Span::from("        "),
+                Span::from("Yes").style(Style::default()),
+            ])
+        };
+
+        frame.render_widget(message, message_block);
+        frame.render_widget(choice.centered(), choices_block);
     }
 
     pub fn render(&mut self, frame: &mut Frame) {
@@ -721,6 +808,11 @@ impl App {
             // Request Confirmation
             if let Some(req) = &self.requests.confirmation {
                 req.render(frame, area, self.config.clone());
+            }
+
+            // Unpair confirmation
+            if let FocusedBlock::UnpairConfirmation { confirm } = self.focused_block {
+                self.render_unpair_confirmation(confirm, frame, area);
             }
 
             // Request to enter pin code
