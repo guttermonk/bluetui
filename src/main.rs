@@ -25,7 +25,7 @@ async fn main() -> AppResult<()> {
         None
     };
 
-    rfkill::check()?;
+    let _ = rfkill::check();
 
     let config = Arc::new(Config::new(config_file_path));
 
@@ -36,23 +36,38 @@ async fn main() -> AppResult<()> {
 
     tui.init()?;
 
-    let Ok(mut app) = App::new(config.clone(), tui.events.sender.clone()).await else {
-        tui.exit()?;
-        return Ok(());
+    let mut app = match App::new(config.clone(), tui.events.sender.clone()).await {
+        Ok(app) => app,
+        Err(e) => {
+            eprintln!("{e}");
+            tui.exit()?;
+            return Ok(());
+        }
     };
+
+    let mut exit_error_message = None;
 
     while app.running {
         tui.draw(&mut app)?;
         match tui.events.next().await? {
-            Event::Tick => app.tick().await?,
+            Event::Tick => {
+                if let Err(e) = app.tick().await {
+                    exit_error_message = Some(e);
+                    break;
+                }
+            }
             Event::Key(key_event) => {
-                handle_key_events(
+                if let Err(e) = handle_key_events(
                     key_event,
                     &mut app,
                     tui.events.sender.clone(),
                     config.clone(),
                 )
-                .await?
+                .await
+                {
+                    exit_error_message = Some(e);
+                    break;
+                }
             }
             Event::Notification(notification) => {
                 app.notifications.push(notification);
@@ -144,5 +159,11 @@ async fn main() -> AppResult<()> {
     }
 
     tui.exit()?;
+
+    if let Some(error) = exit_error_message {
+        eprintln!("{error}");
+        exit(1);
+    }
+
     Ok(())
 }
