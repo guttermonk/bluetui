@@ -10,7 +10,7 @@ use bluetui::{
 use ratatui::{Terminal, backend::CrosstermBackend};
 use std::{io, path::PathBuf, process::exit, sync::Arc};
 
-#[tokio::main]
+#[tokio::main(flavor = "current_thread")]
 async fn main() -> AppResult<()> {
     let args = cli::cli().get_matches();
 

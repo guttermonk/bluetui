@@ -11,15 +11,28 @@ repository = "https://github.com/pythops/bluetui"
 
 [dependencies]
 async-channel = "2"
-bluer = { version = "0.17", features = ["full"] }
+bluer = { version = "0.17", features = ["bluetoothd"] }
 crossterm = { version = "0.29", default-features = false, features = [
     "event-stream",
 ] }
 futures = "0.3"
 ratatui = "0.30"
-tokio = { version = "1", features = ["full"] }
-dirs = "6"
-toml = "0.9"
+# Only what the code actually reaches for: macros (select!, #[tokio::main]),
+# rt (spawn/JoinHandle on the current-thread runtime), sync (mpsc), time
+# (interval), and fs + io-util (favorite.rs reads favorites.txt async).
+# Upstream gets away with just macros + rt because it converted favorite.rs to
+# sync fs; sync and time happen to arrive transitively via bluer, but they are
+# listed here so the build does not depend on bluer's feature choices.
+tokio = { version = "1", features = [
+    "macros",
+    "rt",
+    "sync",
+    "time",
+    "fs",
+    "io-util",
+] }
+dirs = "7"
+toml = "1.1"
 serde = { version = "1", features = ["derive"] }
 clap = { version = "4", features = ["derive", "cargo"] }
 tui-input = "0.15"
